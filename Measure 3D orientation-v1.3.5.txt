@@ -1,0 +1,1060 @@
+/*Measure orientation of a submsampled lineset
+needs a subsampled skeleton lineset with only two nodes/line segment 
+Copyright (C) 2017 Isaac Pratt
+This program is free software: you can redistribute it and/or modify
+it under the terms of the GNU General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
+
+This program is distributed in the hope that it will be useful,
+but WITHOUT ANY WARRANTY; without even the implied warranty of
+MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+GNU General Public License for more details.
+
+You should have received a copy of the GNU General Public License
+along with this program.  If not, see <http://www.gnu.org/licenses/>.
+*/
+
+//v1.3.5 10/09/2017
+//Fixed bug in lineset8 bin production that resulted in an empty lineset8 file (measurements were not affected)
+//Turned off folder name subsample
+
+//v1.3.4 27/06/2017
+//Adding line segment length calculation for weighting of results
+
+//v1.3.3
+//Added checkbox for crop
+
+//v1.3.2
+//Fixed bugs in lineset loading process
+//Files now save to a new sub directory
+//Loading process tells you which files you chose
+
+//v1.3.1
+//Fixed bugs in the lineset loading process
+
+//v1.3
+//Removing Tilt measure - not working properly
+
+//v1.0 started 16/08/2016
+//Added multiple lineset analysis-can have separate centroid, tilt, crop for each; or share
+//Integrating subsample correction
+//removed global variables temporarily
+
+//v0.9 15/08/2016
+//Tilt started 9/08/2016
+
+//v0.8 2/08/2016
+//Finished centroid determination by line perpendicular to endosteal endpoints
+//Removed extraneous manual centroid options
+//Added ability to measure centroid on bone section and anaylyse canals from a cropped section
+//added global variables for default centroid method choice and default x and y offsets for working from a crop
+
+//v0.7
+//Changed lineset bins to 0-22.5, 22.5-67.5, and 67.5-90
+
+//v0.6 26/04/2016
+//Added absPhi measure and 0-90° theta measure
+//Added production of 9 30° binned linesets-theta 0-30, theta 30-60, theta 60-90, phi 0-30, phi 30-60, phi 60-90
+
+//v0.5 22/06/2015
+//Added new options for orientation reference 
+
+//v0.4 10/06/2015
+//Everything works
+//Stress testing remains to be done
+
+//v0.3 15/05/2015
+//Updated to work with Amira 5.6 linesets
+
+//v0.2 13/05/2015
+//Loading of centroid and skeleton linesets complete
+//Calculation and production of 3D distance maps complete
+
+//v0.1 20/04/2015
+
+//macro accepts two linesets in the AMIRA format: the centroid and the subsampled skeleton set
+//macro then measures the 3D distance between them, and
+//draws a line between the centroid and the skeleton
+
+//To do
+//check sin/cos exceptions
+//add global variables back
+
+macro "Measure 3d orientation"{
+MacroVersion="v1.3.5";
+
+///////////////////////////////Centroid dialog///////////////////////////////
+
+radiobox=newArray("load centroid lineset", "Define angle to assumed centroid position with an image");
+
+Dialog.create("Options");
+Dialog.addNumber("How many linesets to process?", 1);
+Dialog.addCheckbox("Use the same centroid for all linesets", true);
+Dialog.show();
+
+linesets=Dialog.getNumber();
+sharedoptions=Dialog.getCheckbox();
+
+radiochoice=newArray(linesets);
+subsamplechoice=newArray(linesets);
+cropchoice=newArray(linesets);
+Interval=newArray(linesets);
+cropXoffset=newArray(linesets);
+cropYoffset=newArray(linesets);
+slicenumber=newArray(linesets);
+
+if (sharedoptions==true) {
+	Dialog.create("Centroid Options");
+	radiochoice[0]="load centroid lineset";
+	Dialog.addMessage("Select the reference point for measuring the orientation:\nFor whole bone scans using a centroid lineset is recommended");
+	Dialog.addRadioButtonGroup("Options", radiobox, 2, 0, radiochoice[0]);
+	Dialog.addCheckbox("Check if the skeleton lineset needs to be subsampled", false);
+	Dialog.addCheckbox("Check if using a cropped region of interest", false);
+	Dialog.addNumber("Set segment length", 10);
+	Dialog.addNumber("X offset for a cropped region", 0);
+	Dialog.addNumber("Y offset for a cropped region", 0);
+	Dialog.addNumber("Input number of slices (needed for centroid from points)", 0);
+	Dialog.show();
+	
+	radiochoice[0]=Dialog.getRadioButton();
+	subsamplechoice[0]=Dialog.getCheckbox();
+	cropchoice[0]=Dialog.getCheckbox();
+	Interval[0]=Dialog.getNumber();
+	cropXoffset[0]=Dialog.getNumber();
+	cropYoffset[0]=Dialog.getNumber();
+	slicenumber[0]=Dialog.getNumber();
+	
+	for (i=0; i<linesets; i++) {
+		radiochoice[i]=radiochoice[0];
+		subsamplechoice[i]=subsamplechoice[0];
+		cropchoice[i]=cropchoice[0];
+		Interval[i]=Interval[0];
+		cropXoffset[i]=cropXoffset[0];
+		cropYoffset[i]=cropYoffset[0];
+		slicenumber[i]=slicenumber[0];
+		}
+	} //end if
+else {
+	for (i=0; i<linesets; i++) {
+		Dialog.create("Centroid Options");
+		radiochoice[i]="Define angle to assumed centroid position with an image";
+		Dialog.addMessage("Select the reference point for measuring the orientation:\nFor whole bone scans using a centroid lineset is recommended");
+		Dialog.addRadioButtonGroup("Options", radiobox, 2, 0, radiochoice[i]);
+		Dialog.addCheckbox("Check if the skeleton lineset needs to be subsampled", false);
+	Dialog.addCheckbox("Check if using a cropped region of interest", false);
+		Dialog.addNumber("Set segment length", 10);
+		Dialog.addNumber("X offset for a cropped region", cropXoffset);
+		Dialog.addNumber("Y offset for a cropped region", cropYoffset);
+		Dialog.addNumber("Input number of slices (needed for centroid from points)", 0);
+		Dialog.show();
+	
+		radiochoice[i]=Dialog.getRadioButton();
+		subsamplechoice[i]=Dialog.getCheckbox();
+		cropchoice[0]=Dialog.getCheckbox();
+		Interval[i]=Dialog.getNumber();
+		cropXoffset[i]=Dialog.getNumber();
+		cropYoffset[i]=Dialog.getNumber();
+		slicenumber[i]=Dialog.getNumber();
+		}
+	} //end else
+
+///////////////////////////////load all linesets as strings up front/create centroid co-ords///////////////////////////////////
+
+centroidpath=newArray(linesets);
+centroiddir=newArray(linesets);
+centroidname=newArray(linesets);
+rawcentroidstring=newArray(linesets);
+rawcentroidstringlength=newArray(linesets);
+
+CentroidXtop=newArray(linesets);
+CentroidYtop=newArray(linesets);
+CentroidXbottom=newArray(linesets);
+CentroidYbottom=newArray(linesets);
+
+skelpath=newArray(linesets);
+skeldir=newArray(linesets);
+skelname=newArray(linesets);
+rawskelstring=newArray(linesets);
+rawskelstringlength=newArray(linesets);
+
+///////////////////////////////initiate loop through the linesets///////////////////////
+
+for (i=0; i<linesets; i++) {
+
+	if (cropchoice[i]==false) {
+		cropXoffset[i]=0;
+		cropYoffset[i]=0;
+		}
+
+///////////////////////////////load a centroid lineset///////////////////////////////////
+
+	if (radiochoice[i]==radiobox[0]) {
+	if (sharedoptions==false || i==0) {
+	
+		centroidpath[i]=File.openDialog("Select centroid lineset for lineset "+i+1);
+		centroiddir[i]=File.getParent(centroidpath[i]);
+		centroidname[i]=File.getName(centroidpath[i]);
+
+		//load the centroid lineset as a string
+
+		rawcentroidstring[i]=File.openAsString(centroidpath[i]);
+		rawcentroidstringlength[i]=lengthOf(rawcentroidstring[i]);
+		if (sharedoptions==false) {
+			print("Loaded centroid lineset "+i+1+File.separator+linesets+" : "+centroidname[i]);
+			}
+		else {
+			print("Loaded centroid lineset "+i+1+" : "+centroidname[i] );
+			}
+		} //end shared options if
+		
+	else {
+		centroidpath[i]=centroidpath[0];
+		centroiddir[i]=centroiddir[0];
+		centroidname[i]=centroidname[0];
+		rawcentroidstring[i]=rawcentroidstring[0];
+		rawcentroidstringlength[i]=rawcentroidstringlength[0];
+		}
+		
+		} //end centroid lineset if
+	
+///////////////////////////////select points to define centroid using drawn reference lines///////////////////////////////////
+	
+	if (radiochoice[i]==radiobox[1]) {
+	if (sharedoptions==false || i==0) {
+	
+	/////USE IMAGE & SELECT ENDOSTEAL EDGES TO DEFINE CENTROID
+	/////Select points on top and bottom images and interpolate
+
+		posnegradio=newArray("Red", "Green");
+	
+		centroiddistance=2; 
+		///sets ratio of distance from centroid to midpoint vs distance between selected points
+		///4 sets the distance to the centroid as twice the distance between the selected points
+
+	/////Select points on top image
+	
+		run("Point Tool...", "selection=Yellow cross=White marker=Tiny mark=0 auto-measure label");
+		run("Set Measurements...", "  centroid redirect=None decimal=3");
+		imagepath=File.openDialog("Select top image of lineset "+i+1+" for centroid definition");
+		imagedir=File.getParent(imagepath);	
+		centroiddir=imagedir;
+		imagename=File.getName(imagepath);
+		setTool("point");
+		open(imagepath);
+		getDimensions(imageWidth, imageHeight, channels, slices, frames);
+	
+		do {
+			Overlay.remove();		
+			waitForUser("Choose two points on the edges of the endosteum");
+
+			imageX1=getResult("X",0);
+			imageY1=getResult("Y",0);
+			imageX2=getResult("X",1);
+			imageY2=getResult("Y",1);
+			run("Clear Results");
+
+			imagemidpointX=(imageX1+imageX2)*0.5;
+			imagemidpointY=(imageY1+imageY2)*0.5;
+	
+			imagecentroidposX=imagemidpointX+centroiddistance*(imageY1-imagemidpointY);
+			imagecentroidnegX=imagemidpointX-centroiddistance*(imageY1-imagemidpointY);
+			imagecentroidposY=imagemidpointY+centroiddistance*(imagemidpointX-imageX1);
+			imagecentroidnegY=imagemidpointY-centroiddistance*(imagemidpointX-imageX1);
+				
+			//draw lines to show the position of the centroid and the selected points
+			Overlay.remove();
+			setColor("blue");
+			setLineWidth(10);
+			Overlay.drawLine(imageX1, imageY1, imageX2, imageY2); 
+			Overlay.show();
+		
+			setColor("Red");
+			Overlay.drawLine(imagemidpointX, imagemidpointY, imagecentroidposX, imagecentroidposY);
+			Overlay.show();
+			setColor("Green");
+			Overlay.drawLine(imagemidpointX, imagemidpointY, imagecentroidnegX, imagecentroidnegY);
+			Overlay.show();
+		
+			Dialog.create("Reference angle options");
+			Dialog.addRadioButtonGroup("Select the direction to the true centroid", posnegradio, 2, 0, "Red");
+			Dialog.addCheckbox("Check to accept the angle and proceed", true);
+			Dialog.show();
+		
+			posnegchoice=Dialog.getRadioButton();
+			flag=Dialog.getCheckbox();
+
+			if (posnegchoice==posnegradio[0]) {
+				CentroidXtop[i]=imagecentroidposX;
+				CentroidYtop[i]=imagecentroidposY;
+				}
+			else {
+				CentroidXtop[i]=imagecentroidnegX;
+				CentroidYtop[i]=imagecentroidnegY;
+				}
+		
+			} while (flag==false); ///end do loop for drawing line on the image
+		close();
+	
+	/////Select points on bottom image	
+	
+		run("Point Tool...", "selection=Yellow cross=White marker=Tiny mark=0 auto-measure label");
+		run("Set Measurements...", "  centroid redirect=None decimal=3");
+		imagepath=File.openDialog("Select bottom image of lineset "+i+1+" for centroid definition");
+		imagedir=File.getParent(imagepath);
+		imagename=File.getName(imagepath);
+		filelist=getFileList(imagedir);
+		filecount=lengthOf(filelist);
+		setTool("point");
+		open(imagepath);
+		getDimensions(imageWidth, imageHeight, channels, slices, frames);
+	
+		do {
+			Overlay.remove();
+			waitForUser("Choose two points on the edges of the endosteum");
+
+			imageX1=getResult("X",0);
+			imageY1=getResult("Y",0);
+			imageX2=getResult("X",1);
+			imageY2=getResult("Y",1);
+			run("Clear Results");
+
+			imagemidpointX=(imageX1+imageX2)*0.5;
+			imagemidpointY=(imageY1+imageY2)*0.5;
+	
+			imagecentroidposX=imagemidpointX+centroiddistance*(imageY1-imagemidpointY);
+			imagecentroidnegX=imagemidpointX-centroiddistance*(imageY1-imagemidpointY);
+			imagecentroidposY=imagemidpointY+centroiddistance*(imagemidpointX-imageX1);
+			imagecentroidnegY=imagemidpointY-centroiddistance*(imagemidpointX-imageX1);
+				
+			//draw lines to show the position of the centroid and the selected points
+			Overlay.remove();
+			setColor("blue");
+			setLineWidth(10);
+			Overlay.drawLine(imageX1, imageY1, imageX2, imageY2); 
+			Overlay.show();
+		
+			setColor("Red");
+			Overlay.drawLine(imagemidpointX, imagemidpointY, imagecentroidposX, imagecentroidposY);
+			Overlay.show();
+			setColor("Green");
+			Overlay.drawLine(imagemidpointX, imagemidpointY, imagecentroidnegX, imagecentroidnegY);
+			Overlay.show();
+
+			Dialog.create("Reference angle options");
+			Dialog.addRadioButtonGroup("Select the direction to the true centroid", posnegradio, 2, 0, "Red");
+			Dialog.addCheckbox("Check to accept the angle and proceed", true);
+			Dialog.show();
+		
+			posnegchoice=Dialog.getRadioButton();
+			flag=Dialog.getCheckbox();
+		
+			if (posnegchoice==posnegradio[0]) {
+				CentroidXbottom[i]=imagecentroidposX;
+				CentroidYbottom[i]=imagecentroidposY;
+				}
+			else {
+				CentroidXbottom[i]=imagecentroidnegX;
+				CentroidYbottom[i]=imagecentroidnegY;
+				}
+		
+			} while (flag==false); ///end do loop for drawing line on the image
+		close();	
+	
+	} //end if for shared options for points
+	
+	else {
+		CentroidXtop[i]=CentroidXtop[0];
+		CentroidYtop[i]=CentroidYtop[0];
+		CentroidXbottom[i]=CentroidXbottom[0];
+		CentroidYbottom[i]=CentroidYbottom[0];
+		}	
+		
+	} //end if for points
+	
+///////////////////////////////load the skeleton lineset///////////////////////////////////
+
+	skelpath[i]=File.openDialog("Select skeleton lineset "+i+1);
+	skeldir[i]=File.getParent(skelpath[i]);
+	skelname[i]=File.getName(skelpath[i]);
+	
+	//save the produced files in a new folder with the name of the skeleton lineset as the folder name
+	//Format of the names for me is XXXXX.NAME.XXXXXX.lineset so use "." to separate out junk before and after
+	//Currently just crops to XXXX from XXXX.lineset
+	
+	subsampleindex = indexOf(skelname[i], ".");
+	//cropindex = indexOf(skelname[i], ".", subsampleindex+1);
+	
+	//skelname[i]= substring(skelname[i], subsampleindex+1, cropindex);
+	skelname[i]= substring(skelname[i], 0, subsampleindex);
+
+	File.makeDirectory(skeldir[i]+File.separator+skelname[i]+File.separator);
+
+	//load the skeleton lineset as a string
+
+	rawskelstring[i]=File.openAsString(skelpath[i]);
+	rawskelstringlength[i]=lengthOf(rawskelstring[i]);
+	print("Loaded skeleton lineset "+i+1+File.separator+linesets +" : "+skelname[i]);
+
+} //end lineset load loop
+	
+///////////////////////////////Do the centroid calculation///////////////////////////////////
+for (p=0; p<linesets; p++) {
+
+///////////////////////////////measure the centroid position from a lineset///////////////////////////////
+	
+	if (radiochoice[p]==radiobox[0]) {
+		startofcentroid=indexOf(rawcentroidstring[p], "{")+3; 
+		//+5 cuts off the first bracket and all other characters, +4 leaves line break, 
+		//+3 leaves line break and space, +2 leaves bracket and line break and space
+
+		endofcentroid=lastIndexOf(rawcentroidstring[p], "}")-2;
+		//-1 removes extra space but leaves the last }, -3 removes bracket, space, line break
+
+		centroidstring=substring(rawcentroidstring[p], startofcentroid, endofcentroid);
+		centroidstringlength=lengthOf(centroidstring);
+		LineCount=0; //counts number of points in the line
+
+		for (i=0; i<centroidstringlength; i++) {
+			TestString=substring(centroidstring, i, i+1);
+			if (matches(TestString, "\n")) {
+				LineCount=LineCount+1;
+				} 
+			} 
+
+		linepositions=newArray(LineCount);
+		j=0;
+
+		for (i=0; i<centroidstringlength; i++){
+			TestString=substring(centroidstring, i, i+1);
+			if (matches(TestString, "\n")) {
+				linepositions[j]=i;
+				j++;
+				}
+			}
+		//adding co-ordinates of the centroid line segment to 3 arrays as floats
+		//each 'point' is added as a separate x,y,z co-ordinate
+		centroidX=newArray(LineCount); //skip first new line character
+		centroidY=newArray(LineCount);
+		centroidZ=newArray(LineCount);
+		centroidX=newArray(LineCount); //skip first new line character
+		centroidY=newArray(LineCount);
+		centroidZ=newArray(LineCount);
+	
+		for (i=0; i<LineCount-1; i++) { 
+			line=substring(centroidstring, linepositions[i], linepositions[i+1]+1);
+			Space1Index=indexOf(line, " ");
+			Space2Index=lastIndexOf(line, " ");
+			centroidXstring=substring(line, 0, Space1Index);
+			centroidYstring=substring(line, Space1Index+1, Space2Index);
+			centroidZstring=substring(line, Space2Index+1);
+			centroidX[i]=parseFloat(centroidXstring);
+			centroidY[i]=parseFloat(centroidYstring);
+			centroidZ[i]=parseFloat(centroidZstring);		
+			centroidZ[i]=round(centroidZ[i]);
+			}
+		} ///end if for centroid lineset choice
+	
+////////////////////Calculate centroid from points-Interpolate centroid results from top and bottom////////////////////
+	if (radiochoice[p]==radiobox[1]) {
+			centroidX=newArray(slicenumber[p]);
+			centroidY=newArray(slicenumber[p]);
+			centroidZ=newArray(slicenumber[p]);
+			file=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+".centroid.lineset");
+			filepath=skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+".centroid.lineset";
+			print(file, "# LineSet 0.1");
+			print(file, "lineset 0.1");
+			print(file, "\n");
+			print(file, "nDataVals 1");
+			print(file, "\n");
+			print(file, "{ {");
+			
+	/////Centroid interpolation equation is (x-x1)/l=(y-y1)/m=(z-z1)/n
+	/////so x=l*(z-z1)/n+x1, y=m*(z-z1)/n+y1
+	/////l=(x1-x2), m=(y1-y2), n=(z1-z2)
+	/////centroid 1 is the top, centroid 2 is the bottom (needs to be in same direction as lineset is processed)
+	/////always know Z (slicenumber) 
+	/////CentroidZ starts at 1
+		
+			Centroidl=CentroidXtop[p]-CentroidXbottom[p];
+			Centroidm=CentroidYtop[p]-CentroidYbottom[p];
+			Centroidn=slicenumber[p]-1;
+		
+			for (i=0; i<slicenumber[p]; i++) {
+			
+				centroidX[i]=Centroidl*(centroidZ[i]-centroidZ[0])/Centroidn+CentroidXtop[p];
+				centroidY[i]=Centroidm*(centroidZ[i]-centroidZ[0])/Centroidn+CentroidYtop[p];
+				centroidZ[i]=i+1;
+				centroidZ[i]=round(centroidZ[i]);
+			
+				print(file, centroidX[i]+" "+centroidY[i]+" "+centroidZ[i]);
+				}
+			print(file, "} }"+"\n");
+			print("Centroid lineset: "+p+1+File.separator+linesets+" saved");
+			File.close(file);
+			//}
+
+	}//end radiochoice
+	
+	NewString=rawskelstring[p];
+	
+	if (subsamplechoice[p]==true) {
+	print("Starting subsample for lineset: "+p+1);
+	title = "[Subsampling lineset]";
+	run("Text Window...", "name="+ title +" width=25 height=2 monospaced");
+	
+///////////////////////////////Subsample correction of skeleton lineset///////////////////////////////
+
+/////////////////////Count the number of lines contained within the file.-2 on length due to the return key...
+
+	EndofIntro=indexOf(rawskelstring[p], "{");
+	IntroString=substring(rawskelstring[p], 0, EndofIntro+1);
+	NewString=IntroString+" ";	
+	LineCount=0;
+
+	for (i=0; i<(rawskelstringlength[p]-2); i++) {
+		TestString=substring(rawskelstring[p], i, i+1);
+		if (matches(TestString, "}")){
+			LineCount=LineCount+1;
+			}
+		}
+
+///////////////////////////////////////////load locations of the line breaks into Array
+
+	LineStartIndexArray=newArray(LineCount);
+	LineEndIndexArray=newArray(LineCount);
+
+	SearchIndex=EndofIntro+1;
+
+	for (i=0; i<LineCount; i++) {
+		LineStartIndexArray[i]=indexOf(rawskelstring[p], "{", SearchIndex);
+		LineEndIndexArray[i]=indexOf(rawskelstring[p], "}", SearchIndex);
+		SearchIndex=LineEndIndexArray[i]+1;
+		}
+
+///////Breaking the raw string into individual lines/////////////////////////////////////////////////////////////////
+
+
+	for (i=0; i<LineCount; i++) {
+	
+		print(title, "\\Update:"+i+File.separator+LineCount+" ("+(i*100)/LineCount+"%)\n"+getBar(i, LineCount));
+
+/////////creation of a line substring....................................
+
+		LineString=substring(rawskelstring[p], LineStartIndexArray[i], LineEndIndexArray[i]);////first bracket included ending not...
+		LineStringLength=lengthOf(LineString);
+
+/////////////////////Count the number of points contained within the Line.
+ 
+		for (t=0; t<LineStringLength-1; t++) {
+			TestString=substring(LineString, t, t+1);
+			if (matches(TestString, "\n")){
+				FINALReturnIndex=t;
+				PointCount=PointCount+1;
+				}
+			}
+
+////-1 for the return at the end....
+
+///////////////////// Read in starting XYZ coordinates for line and get their numerical coordinates
+
+		PointStartIndex=0;
+		
+		for (q=0; q<PointCount; q++) {
+////////reads in starting node
+			FirstReturnIndex=indexOf(LineString, "\n", PointStartIndex+2);
+			StartString=substring(LineString, PointStartIndex+2, FirstReturnIndex+1);
+			Space1Index=indexOf(StartString, " ", 1);
+			X1CoordString=substring(StartString, 0, Space1Index);
+			Space2Index=indexOf(StartString, " ", Space1Index+1);
+			Space3Index=lastIndexOf(StartString, " ");
+			Y1CoordString=substring(StartString, Space1Index, Space2Index);
+			EndReturnIndex=lengthOf(StartString)-1;
+			//EndReturnIndex=lastIndexOf(StartString, "\n");
+			
+			if (Space2Index==Space3Index) {
+				Z1CoordString=substring(StartString, Space2Index,EndReturnIndex);
+				}
+			else {
+				Z1CoordString=substring(StartString, Space2Index,Space3Index);
+				}
+
+			X1=parseFloat(X1CoordString);
+			Y1=parseFloat(Y1CoordString);
+			Z1=parseFloat(Z1CoordString);
+			
+		///tests subsequent nodes for length parameter defined by variable 'interval'
+
+			for (t=q+1; t<PointCount; t++) {
+		///reads in next node	
+
+				LineEndIndex=indexOf(LineString, "\n", FirstReturnIndex+1);
+				//LineEndIndex=indexOf(LineString, "\n", EndReturnIndex+3);
+				//NextString=substring(LineString, EndReturnIndex+3, LineEndIndex+1);
+				NextString=substring(LineString, FirstReturnIndex+1, LineEndIndex+1);
+			
+				Space1Index=indexOf(NextString, " ", 1);
+				X2CoordString=substring(NextString, 0, Space1Index);
+				Space2Index=indexOf(NextString, " ", Space1Index+1);
+				Space3Index=lastIndexOf(NextString, " ");
+				
+				Y2CoordString=substring(NextString, Space1Index, Space2Index);
+				EndReturnIndex=lastIndexOf(NextString, "\n");
+				if (Space2Index==Space3Index) {
+					Z2CoordString=substring(NextString, Space2Index, EndReturnIndex);
+					}
+				else {
+					Z2CoordString=substring(NextString, Space2Index, Space3Index);
+					}
+					
+				X2=parseFloat(X2CoordString);
+				Y2=parseFloat(Y2CoordString);
+				Z2=parseFloat(Z2CoordString);
+			
+				//EndReturnIndex=LineEndIndex-2;
+
+////////////////////////////////////////////////////3D length
+				DeltaX=X1-X2;
+				DeltaY=Y1-Y2;
+				DeltaZ=Z1-Z2;	
+				LengthFromStart=sqrt(DeltaX*DeltaX+DeltaY*DeltaY+DeltaZ*DeltaZ);
+				
+				if(LengthFromStart<Interval && FirstReturnIndex<FINALReturnIndex){
+					FirstReturnIndex=LineEndIndex;	
+					}
+
+				if(LengthFromStart>=Interval){ ////proper node by length found.
+					t=PointCount; //closes the loop
+					PointStartIndex=FirstReturnIndex-1;
+					}
+				if(FirstReturnIndex>=FINALReturnIndex){ //Test for the end of line string///
+					q=PointCount;
+					}
+				} /// end t 'for' statement
+			NewString=NewString+"{"+"\n"+StartString+NextString+"} ";
+			}///end q 'for' statement
+		}//end i for statement
+///////***************************************Outputs.....................................
+
+/////Outputs the linear transform to a text window///////////////////////////////////////////////////////////////////
+
+	NewString=NewString+"\n"+"}"+"\n";//adds the expected suffix for the Amira text import......
+
+	print("Working on lineset "+p+1+File.separator+linesets+" - "+skelname[p]);
+	print("Subsampling complete");
+	subsamplefile=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+"subsample."+skelname[p]+".txt");
+	print(subsamplefile, NewString);
+	File.close(subsamplefile);
+	print(title, "\\Close");
+	} //end if for subsampling
+		
+///////////////////////////////Skeleton processing///////////////////////////////
+
+	startofskel = indexOf(NewString, "{")+2; //preserves the { for the first segment 
+	endofskel=lastIndexOf(NewString, "}")-1; //-2 preserves the } for the last line
+
+	skelstring=substring(NewString, startofskel, endofskel);
+	skelstringlength=lengthOf(skelstring);
+	//count the number of line segments in the lineset
+
+	segmentcount=0;
+	for (i=0; i<skelstringlength; i++) {
+		teststring=substring(skelstring, i, i+1);
+		if (matches(teststring, "}")) {
+			segmentcount=segmentcount+1;
+			}
+		}
+
+	//find the positions of the starts of each segment in the file
+
+	segmentposition=newArray(segmentcount);
+	j=0;
+	for (i=0; i<skelstringlength; i++) {
+		teststring=substring(skelstring, i, i+1);
+		if (matches(teststring, "\\{")) {
+			segmentposition[j]=i+1;
+			j++;
+			}
+		}
+
+	skelX1=newArray(segmentcount);
+	skelY1=newArray(segmentcount);
+	skelZ1=newArray(segmentcount);
+
+	skelX2=newArray(segmentcount);
+	skelY2=newArray(segmentcount);
+	skelZ2=newArray(segmentcount);
+
+	MidX=newArray(segmentcount);
+	MidY=newArray(segmentcount);
+	MidZ=newArray(segmentcount);
+	
+	DeltaX=newArray(segmentcount);
+	DeltaY=newArray(segmentcount);
+	DeltaZ=newArray(segmentcount);
+
+	ThreeDLength=newArray(segmentcount);
+	TwoDProjectionLength=newArray(segmentcount);
+	Theta=newArray(segmentcount);
+	Phi=newArray(segmentcount);
+	AbsPhi=newArray(segmentcount);
+
+	title = "[Parsing Lineset]";
+	run("Text Window...", "name="+ title +" width=25 height=2 monospaced");
+	
+	for (i=0; i<segmentcount; i++) {
+	print(title, "\\Update:"+i+File.separator+segmentcount+" ("+(i*100)/segmentcount+"%)\n"+getBar(i, segmentcount));
+		LineStartIndex=segmentposition[i];
+		FirstReturnIndex=indexOf(skelstring, "\n", LineStartIndex);
+		SecondReturnIndex=indexOf(skelstring, "\n", FirstReturnIndex+1);
+		Line1String=substring(skelstring, LineStartIndex+1, SecondReturnIndex);
+		LastReturnIndex=indexOf(skelstring, "}", segmentposition[i]);
+		Line2String=substring(skelstring, SecondReturnIndex, LastReturnIndex-1);
+
+		Space1Index=indexOf(Line1String, " ");
+		skelX1string=substring(Line1String, 0, Space1Index);
+		Space2Index=indexOf(Line1String, " ", Space1Index+1);
+		Space3Index=lastIndexOf(Line1String, " ");
+		skelY1string=substring(Line1String, Space1Index+1, Space2Index);
+		if (Space2Index==Space3Index) {
+			skelZ1string=substring(Line1String, Space2Index, lengthOf(Line1String));
+			}
+		else {
+			skelZ1string=substring(Line1String, Space2Index, Space3Index);
+			}
+	
+		skelX1[i]=parseFloat(skelX1string)+cropXoffset;
+		skelY1[i]=parseFloat(skelY1string)+cropYoffset;
+		skelZ1[i]=parseFloat(skelZ1string);
+
+		Space1Index=indexOf(Line2String, " ");
+		skelX2string=substring(Line2String, 0, Space1Index);
+		Space2Index=indexOf(Line2String, " ", Space1Index+1);
+		Space3Index=lastIndexOf(Line2String, " ");
+		skelY2string=substring(Line2String, Space1Index+1, Space2Index);
+		if (Space2Index==Space3Index) {
+			skelZ2string=substring(Line2String, Space2Index, lengthOf(Line2String));
+			}
+		else {
+			skelZ2string=substring(Line2String, Space2Index, Space3Index);
+			}
+			
+		skelX2[i]=parseFloat(skelX2string)+cropXoffset;
+		skelY2[i]=parseFloat(skelY2string)+cropYoffset;
+		skelZ2[i]=parseFloat(skelZ2string);
+
+	//////ThreeD distance between node 1 and node 2 and midpoint
+
+		DeltaX[i]=skelX1[i]-skelX2[i];
+		DeltaY[i]=skelY1[i]-skelY2[i];
+		DeltaZ[i]=skelZ1[i]-skelZ2[i];
+		MidX[i]=(skelX1[i]+skelX2[i])*0.5;
+		MidY[i]=(skelY1[i]+skelY2[i])*0.5;
+		MidZ[i]=-floor((skelZ1[i]+skelZ2[i])*-0.5); //z co-ord needs to be an integer
+		if (MidZ[i]<=0) {
+			//print("Problem Z value: i= "+i+" MidZ[i]= "+MidZ[i]+" - Correcting MidZ[i] to 1");
+			MidZ[i]=1;
+			}
+	
+		TwoDProjectionLength[i]=sqrt(DeltaX[i]*DeltaX[i]+DeltaY[i]*DeltaY[i]);
+		ThreeDLength[i]=sqrt(DeltaX[i]*DeltaX[i]+DeltaY[i]*DeltaY[i]+DeltaZ[i]*DeltaZ[i]);
+
+		
+
+
+	//////Theta calculation-old way (from dave's macro)
+	//////No centroid reference point
+
+		Theta[i]= (atan2(abs(DeltaX[i]), abs(DeltaY[i])))*(180/PI);
+
+		///corrections for where coordinates lie relative to each other -90-90 degrees theta
+		if (skelX1[i]>skelX2[i] && skelY1[i]<skelY2[i]) {
+			Theta[i]=Theta[i]*-1;
+			}
+		if (skelX1[i]>skelX2[i] && skelY1[i]>skelY2[i]) {
+			Theta[i]=90-Theta[i];
+			}
+		if (skelX1[i]<skelX2[i] && skelY1[i]>skelY2[i]) {
+			Theta[i]=(90-Theta[i])*-1;
+			} 
+		if (skelX1[i]==skelX2[i]) {
+			Theta[i]=0;
+			}
+	
+	//////Phi calculation-"longitudinal angle"-(from dave's macro)
+	//////No centroid reference point
+	
+		XYHypo=sqrt((DeltaX[i]*DeltaX[i])+(DeltaY[i]*DeltaY[i]));
+
+		Phi[i]= (atan2(abs(DeltaZ[i]), XYHypo))*(180/PI);
+
+		///corrections for where coordinates lie relative to each other -90-90 degrees phi
+		//fewer circumstances exist because z1 is always less than z2 for the lineset outputs	
+
+		if(skelX1[i]>skelX2[i] && skelY1[i]>skelY2[i]) {	
+			Phi[i]=Phi[i]*-1;
+			}
+		if(skelX1[i]<skelX2[i] && skelY1[i]>skelY2[i]) {	
+			Phi[i]=Phi[i]*-1;
+			}
+		if(skelZ1[i]==skelZ2[i]) {	
+			Phi[i]=0;   //phi=0 represents radial canals
+			}	
+		AbsPhi[i]= abs(Phi[i]);
+		} //end for loop
+	print(title, "\\Close");
+
+	//////Distance between midpoint and centroid
+
+	//////Create new lineset of the distances between line midpoints and centroid
+
+	print("Saving distance lineset");
+
+	distancefile=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+".centroidlinesetdistance.lineset");
+	distancefilepath=skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+".centroidlinesetdistance.lineset";
+
+	print(distancefile, "# LineSet 0.1");
+	print(distancefile, "\n");
+	print(distancefile, "nDataVals 0");
+	print(distancefile, "\n");
+	print(distancefile, "{ {");
+
+	DeltaXCentroid=newArray(segmentcount);
+	DeltaYCentroid=newArray(segmentcount);
+	DeltaZCentroid=newArray(segmentcount);
+
+	DeltaXmidpoint=newArray(segmentcount);
+	DeltaYmidpoint=newArray(segmentcount);
+	DeltaZmidpoint=newArray(segmentcount);
+
+	DeltaXendpoint=newArray(segmentcount);
+	DeltaYendpoint=newArray(segmentcount);
+	DeltaZendpoint=newArray(segmentcount);
+
+	ThreeDCentroidDistance=newArray(segmentcount);
+	ThreeDmidpointDistance=newArray(segmentcount);
+	ThreeDendpointDistance=newArray(segmentcount);
+
+	AM=newArray(segmentcount);
+	BM=newArray(segmentcount);
+	AB=newArray(segmentcount);
+
+	ThetaCalc1=newArray(segmentcount);
+	ThetaCalc2=newArray(segmentcount);
+	ThetaCentroid=newArray(segmentcount);
+	PhiCentroid=newArray(segmentcount);
+	Theta90=newArray(segmentcount);
+
+	////// Loop to determine skeleton & centroid distances
+
+	title = "[Processing calculations]";
+	run("Text Window...", "name="+ title +" width=25 height=2 monospaced");
+
+	for (i=0; i<segmentcount; i++) {
+		print(title, "\\Update:"+i+File.separator+segmentcount+" ("+(i*100)/segmentcount+"%)\n"+getBar(i, segmentcount));
+		DeltaXCentroid[i]=MidX[i]-centroidX[(MidZ[i]-1)];
+		DeltaYCentroid[i]=MidY[i]-centroidY[(MidZ[i]-1)];
+		ThreeDCentroidDistance[i]=sqrt(DeltaXCentroid[i]*DeltaXCentroid[i]+DeltaYCentroid[i]*DeltaYCentroid[i]);
+
+		DeltaXmidpoint[i]=MidX[i]-skelX1[i];
+		DeltaYmidpoint[i]=MidY[i]-skelY1[i];
+		ThreeDmidpointDistance[i]=sqrt(DeltaXmidpoint[i]*DeltaXmidpoint[i]+DeltaYmidpoint[i]*DeltaYmidpoint[i]);
+
+		DeltaXendpoint[i]=skelX1[i]-centroidX[(MidZ[i]-1)];
+		DeltaYendpoint[i]=skelY1[i]-centroidY[(MidZ[i]-1)];
+		///projection of endpoint onto z-plane of midpoint
+		ThreeDendpointDistance[i]=sqrt(DeltaXendpoint[i]*DeltaXendpoint[i]+DeltaYendpoint[i]*DeltaYendpoint[i]);
+
+	//////Theta[i] is the old measure, ThetaCentroid[i] is the new measure
+	//////Theta based on the triangle formed by the centroid, endpoint1, and the midpoint
+	//////Using law of cosines
+	//////Theta is the angle determining the degree of radial, oblique, or circumferential-ness
+	//////When the canal segment is parallel to the centroid-midpoint line it is radial
+	//////0-22.5° and 157.5-180° are radial, 22.5-67.5° and 112.5-157.5° are oblique, 67.5-112.5° are circumferential
+ 
+		AM[i]=ThreeDCentroidDistance[i];
+		BM[i]=ThreeDmidpointDistance[i];
+		AB[i]=ThreeDendpointDistance[i];
+
+	///if the distance between the endpoint and the midpoint (BM) is 0 the canal is perfectly longitudinal
+	///if BM is 0 the calculation leads to theta=NaN, so define thetacalc1 as 1 => acos(1)=0
+		if (BM[i]==0) {
+			ThetaCalc1[i]=1; 
+			}
+		else {
+			ThetaCalc1[i]= (AM[i]*AM[i]+BM[i]*BM[i]-AB[i]*AB[i])/(2*(BM[i]*AM[i]));
+			}
+		ThetaCalc2[i]= acos(ThetaCalc1[i]);
+		ThetaCentroid[i]=(180/PI)*ThetaCalc2[i];
+		if (ThetaCentroid[i]>90) {
+			Theta90[i]=180-ThetaCentroid[i];
+			}
+		else {
+			Theta90[i]=ThetaCentroid[i];
+			}
+	
+	//////Phi using centroid only works for perfectly radial cases
+
+///////////////////////////SAVE RESULTS////////////////////////
+
+////////Save lineset of skeleton midpoints-centroid line segments
+	
+		print(distancefile, round(centroidX[(MidZ[i]-1)])+" "+round(centroidY[(MidZ[i]-1)])+" "+round(centroidZ[(MidZ[i]-1)]));
+		print(distancefile, round(MidX[i])+" "+round(MidY[i])+" "+round(MidZ[i]));
+		if (i<segmentcount-1) {
+			print(distancefile, "} {\n"); 
+			}
+		} //end for loop	
+		print(title, "\\Close");
+
+	print(distancefile, "} \n}\n");
+	File.close(distancefile);
+
+	//////Save csv of data and measurement statistics and separating the skeleton lineset into 9 22.5 degree bins
+	//////ImageJ can only have one file open at a time unfortunately so the binning has to occur in separate loops
+
+	linesetbin1=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+"-theta0-22.5-phi-0-22.5"+".lineset");
+	print(linesetbin1, "# LineSet 0.1"+"\n"+"nDataVals 0"+"\n"+"{ {");
+	for (i=0; i<segmentcount; i++) {
+			if (AbsPhi[i]<22.5 && Theta90[i]<22.5) {
+			print(linesetbin1, skelX1[i]+" "+skelY1[i]+" "+skelZ1[i]+"\n"+skelX2[i]+" "+skelY2[i]+" "+skelZ2[i]);
+			if (i<segmentcount-1) {
+				print(distancefile, "} {\n");
+				}
+			}
+		}
+	print(linesetbin1, "} \n}\n");
+	File.close(linesetbin1);
+
+	linesetbin2=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+"-theta22.5-67.5-phi-0-22.5"+".lineset");
+	print(linesetbin2, "# LineSet 0.1"+"\n"+"nDataVals 0"+"\n"+"{ {");
+	for (i=0; i<segmentcount; i++) {
+			if (AbsPhi[i]<22.5 && Theta90[i]<67.5 && Theta90[i]>22.5) {
+			print(linesetbin2, skelX1[i]+" "+skelY1[i]+" "+skelZ1[i]+"\n"+skelX2[i]+" "+skelY2[i]+" "+skelZ2[i]);
+			if (i<segmentcount-1) {
+				print(distancefile, "} {\n");
+				}
+			}
+		}
+	print(linesetbin2, "} \n}\n");
+	File.close(linesetbin2);
+
+	linesetbin3=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+"-theta67.5-90-phi-0-22.5"+".lineset");
+	print(linesetbin3, "# LineSet 0.1"+"\n"+"nDataVals 0"+"\n"+"{ {");
+	for (i=0; i<segmentcount; i++) {
+			if (AbsPhi[i]<22.5 && Theta90[i]<90 && Theta90[i]>67.5) {
+			print(linesetbin3, skelX1[i]+" "+skelY1[i]+" "+skelZ1[i]+"\n"+skelX2[i]+" "+skelY2[i]+" "+skelZ2[i]);
+			if (i<segmentcount-1) {
+				print(distancefile, "} {\n");
+				}
+			}
+		}
+	print(linesetbin3, "} \n}\n");
+	File.close(linesetbin3);
+
+	linesetbin4=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+"-theta0-22.5-phi-22.5-67.5"+".lineset");
+	print(linesetbin4, "# LineSet 0.1"+"\n"+"nDataVals 0"+"\n"+"{ {");
+	for (i=0; i<segmentcount; i++) {
+			if (AbsPhi[i]>22.5 && AbsPhi[i]<67.5 && Theta90[i]<22.5) {
+			print(linesetbin4, skelX1[i]+" "+skelY1[i]+" "+skelZ1[i]+"\n"+skelX2[i]+" "+skelY2[i]+" "+skelZ2[i]);
+			if (i<segmentcount-1) {
+				print(distancefile, "} {\n");
+				}
+			}
+		}
+	print(linesetbin4, "} \n}\n");
+	File.close(linesetbin4);	
+
+	linesetbin5=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+"-theta22.5-67.5-phi-22.5-67.5"+".lineset");
+	print(linesetbin5, "# LineSet 0.1"+"\n"+"nDataVals 0"+"\n"+"{ {");
+	for (i=0; i<segmentcount; i++) {
+			if (AbsPhi[i]>22.5 && AbsPhi[i]<67.5 && Theta90[i]<67.5 && Theta90[i]>22.5) {
+			print(linesetbin5, skelX1[i]+" "+skelY1[i]+" "+skelZ1[i]+"\n"+skelX2[i]+" "+skelY2[i]+" "+skelZ2[i]);
+			if (i<segmentcount-1) {
+				print(distancefile, "} {\n");
+				}
+			}	
+		}
+	print(linesetbin5, "} \n}\n");
+	File.close(linesetbin5);	
+
+	linesetbin6=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+"-theta67.5-90-phi-22.5-67.5"+".lineset");
+	print(linesetbin6, "# LineSet 0.1"+"\n"+"nDataVals 0"+"\n"+"{ {");
+	for (i=0; i<segmentcount; i++) {
+			if (AbsPhi[i]>22.5 && AbsPhi[i]<67.5 && Theta90[i]<90 && Theta90[i]>67.5) {
+			print(linesetbin6, skelX1[i]+" "+skelY1[i]+" "+skelZ1[i]+"\n"+skelX2[i]+" "+skelY2[i]+" "+skelZ2[i]);
+			if (i<segmentcount-1) {
+				print(distancefile, "} {\n");
+				}
+			}
+		}
+	print(linesetbin6, "} \n}\n");
+	File.close(linesetbin6);	
+	
+	linesetbin7=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+"-theta0-22.5-phi-67.5-90"+".lineset");
+	print(linesetbin7, "# LineSet 0.1"+"\n"+"nDataVals 0"+"\n"+"{ {");
+	for (i=0; i<segmentcount; i++) {
+			if (AbsPhi[i]>67.5 && AbsPhi[i]<90 && Theta90[i]<22.5) {
+			print(linesetbin7, skelX1[i]+" "+skelY1[i]+" "+skelZ1[i]+"\n"+skelX2[i]+" "+skelY2[i]+" "+skelZ2[i]);
+			if (i<segmentcount-1) {
+				print(distancefile, "} {\n");
+				}
+			}
+		}
+	print(linesetbin7, "} \n}\n");
+	File.close(linesetbin7);		
+
+	linesetbin8=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+"-theta22.5-67.5-phi-67.5-90"+".lineset");
+	print(linesetbin8, "# LineSet 0.1"+"\n"+"nDataVals 0"+"\n"+"{ {");
+	for (i=0; i<segmentcount; i++) {
+			if (AbsPhi[i]>67.5 && AbsPhi[i]<90 && Theta90[i]<67.5 && Theta90[i]>22.5) {
+			print(linesetbin8, skelX1[i]+" "+skelY1[i]+" "+skelZ1[i]+"\n"+skelX2[i]+" "+skelY2[i]+" "+skelZ2[i]);
+			if (i<segmentcount-1) {
+				print(distancefile, "} {\n");
+				}
+			}
+		}
+	print(linesetbin8, "} \n}\n");
+	File.close(linesetbin8);		
+
+	linesetbin9=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+"-theta67.5-90-phi-67.5-90"+".lineset");
+	print(linesetbin9, "# LineSet 0.1"+"\n"+"nDataVals 0"+"\n"+"{ {");
+	for (i=0; i<segmentcount; i++) {
+			if (AbsPhi[i]>67.5 && AbsPhi[i]<90 && Theta90[i]<90 && Theta90[i]>67.5) {
+			print(linesetbin9, skelX1[i]+" "+skelY1[i]+" "+skelZ1[i]+"\n"+skelX2[i]+" "+skelY2[i]+" "+skelZ2[i]);
+			if (i<segmentcount-1) {
+				print(distancefile, "} {\n");
+				}
+			}
+		}
+	print(linesetbin9, "} \n}\n");
+	File.close(linesetbin9);		
+	csv=File.open(skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+".csv");
+	csvpath=skeldir[p]+File.separator+skelname[p]+File.separator+skelname[p]+".csv";
+	print(csv, "Segment,Centroid,,,Skeleton,,,,,,,,,Calculated values,,,,,,,,,Measures,,,");
+	print(csv, "#,X,Y,Z,X1,Y1,Z1,X2,Y2,Z2,MidX,MidY,MidZ,DeltaXCentroid,DeltaYCentroid,ThreeDCentroidDistance,DeltaXmidpoint,DeltaYmidpoint,ThreeDmidpointDistance,DeltaXendpoint,DeltaYendpoint,ThreeDendpointDistance,3D Length,2D Projection Length,Theta(old),Phi(old),AbsPhi,Theta(new),Theta(90)");
+
+	for (i=0; i<segmentcount; i++) {
+		print(csv, (i+1)+","+centroidX[(MidZ[i]-1)]+","+centroidY[(MidZ[i]-1)]+","+centroidZ[(MidZ[i]-1)]+","+skelX1[i]+","+skelY1[i]+","+skelZ1[i]+","+skelX2[i]+","+skelY2[i]+","+skelZ2[i]+","+MidX[i]+","+MidY[i]+","+MidZ[i]+","+DeltaXCentroid[i]+","+DeltaYCentroid[i]+","+ThreeDCentroidDistance[i]+","+DeltaXmidpoint[i]+","+DeltaXmidpoint[i]+","+ThreeDmidpointDistance[i]+","+DeltaXendpoint[i]+","+DeltaYendpoint[i]+","+ThreeDendpointDistance[i]+","+ThreeDLength[i]+","+TwoDProjectionLength[i]+","+Theta[i]+","+Phi[i]+","+AbsPhi[i]+","+ThetaCentroid[i]+","+Theta90[i]+"\n");
+		}
+	print("FINISHED LINESET "+p+1+File.separator+linesets);	
+	File.close(csv);	
+} //end for loop over linesets
+}
+
+
+print("END-SUCCESS");
+
+
+	function getBar(p1, p2) {
+		n = 20;
+		bar1 = "--------------------";
+		bar2 = "********************";
+		index = round(n*(p1/p2));
+		if (index<1) index = 1;
+		if (index>n-1) index = n-1;
+		return substring(bar2, 0, index) + substring(bar1, index+1, n);
+		}
+		
+} //end macro
+	

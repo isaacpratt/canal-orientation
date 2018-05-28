@@ -1,0 +1,193 @@
+Sub IndexPivotCreate()
+
+'Creates a pivot table for the indices measured. Keep in mind that excel groups into even bins but the oblique canal category is two groups wide (22.5-67.5)
+
+'Declare Variables
+Dim PSheet As Worksheet
+Dim ISheet As Worksheet
+Dim DSheet As Worksheet
+Dim PCache As PivotCache
+Dim PTable As PivotTable
+Dim PRange As Range
+Dim LastRow As Long
+Dim LastCol As Long
+Dim StartPvt As String
+Dim SrcData As String
+Dim FileName As String
+Dim SaveName As String
+
+FileName = ActiveWorkbook.FullName
+SaveName = Replace(FileName, "csv", "PIVOTTABLE") & ".xlsx"
+
+ActiveSheet.Name = "Data"
+Sheets.Add After:=ActiveSheet
+ActiveSheet.Name = "IntermediateStep"
+Sheets.Add After:=ActiveSheet
+ActiveSheet.Name = "PivotTable"
+
+Set PSheet = Worksheets("PivotTable")
+Set DSheet = Worksheets("Data")
+Set ISheet = Worksheets("IntermediateStep")
+
+'find last row
+LastRow = DSheet.Cells(Rows.Count, 1).End(xlUp).Row
+
+'copy data to new sheet
+ISheet.Range("A1:A" & LastRow).Value = DSheet.Range("W2:W" & LastRow + 1).Value
+ISheet.Range("B1:B" & LastRow).Value = DSheet.Range("X2:X" & LastRow + 1).Value
+ISheet.Range("C1:C" & LastRow).Value = DSheet.Range("AA2:AA" & LastRow + 1).Value
+ISheet.Range("D1:D" & LastRow).Value = DSheet.Range("AC2:AC" & LastRow + 1).Value
+
+'Figure out the source data
+Set PRange = ISheet.Range("A1:D" & LastRow)
+SrcData = ISheet.Name & "!" & PRange.Address(ReferenceStyle:=xlR1C1)
+
+StartPvt = PSheet.Name & "!" & PSheet.Range("A3").Address(ReferenceStyle:=xlR1C1)
+
+'Create Pivot Cache from Source Data
+Set PCache = ActiveWorkbook.PivotCaches.Create( _
+    SourceType:=xlDatabase, _
+    SourceData:=SrcData)
+'Create Pivot table
+Set PTable = PCache.CreatePivotTable( _
+    TableDestination:=StartPvt, _
+    TableName:="DataPivotTableaaaaaaaa")
+
+'Set and group rows and columns
+    With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa").PivotFields("Theta(90)")
+        .Orientation = xlRowField
+        .Position = 1
+    End With
+    Range("A5").Select
+    Selection.Group Start:=0, End:=90, By:=22.5
+    With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa").PivotFields("Theta(90)")
+        .Orientation = xlColumnField
+        .Position = 1
+    End With
+    With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa").PivotFields("AbsPhi")
+        .Orientation = xlRowField
+        .Position = 1
+    End With
+    Range("A5").Select
+    Selection.Group Start:=0, End:=True, By:=22.5
+'Set data fields as percents
+    ActiveSheet.PivotTables("DataPivotTableaaaaaaaa").AddDataField ActiveSheet. _
+        PivotTables("DataPivotTableaaaaaaaa").PivotFields("2D Projection Length"), _
+        "Sum of 2D Projection Length", xlSum
+With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa").PivotFields( _
+        "Sum of 2D Projection Length")
+        .Calculation = xlPercentOfTotal
+        .NumberFormat = "0.00%"
+End With
+With PTable.PivotFields("Theta(90)")
+        .Orientation = xlColumnField
+        .Position = 1
+    End With
+   With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa").PivotFields("AbsPhi")
+        .PivotItems("<0").Visible = False
+    End With
+    
+    
+'Write out indices
+    Range("B11").Select
+    ActiveCell.FormulaR1C1 = "2D Indices"
+    Range("B12").Select
+    ActiveCell.FormulaR1C1 = "laminarity index"
+    Range("C12").Select
+    ActiveCell.FormulaR1C1 = "Radial index"
+    Range("D12").Select
+    ActiveCell.FormulaR1C1 = "Longitudinal index"
+    
+    Range("B13").Select
+    ActiveCell.FormulaR1C1 = "=SUM(R[-8]C[3]:R[-6]C[3])"
+    Range("C13").Select
+    ActiveCell.FormulaR1C1 = "=SUM(R[-8]C[-1]:R[-6]C)"
+    Range("D13").Select
+    ActiveCell.FormulaR1C1 = "=SUM(R[-5]C[-2]:R[-5]C[1])"
+    
+'SECOND PIVOT TABLE
+Set PRange2 = ISheet.Range("C1:D" & LastRow)
+SrcData2 = ISheet.Name & "!" & PRange.Address(ReferenceStyle:=xlR1C1)
+
+StartPvt2 = PSheet.Name & "!" & PSheet.Range("A23").Address(ReferenceStyle:=xlR1C1)
+
+'Create Pivot Cache from Source Data
+Set PCache2 = ActiveWorkbook.PivotCaches.Create( _
+    SourceType:=xlDatabase, _
+    SourceData:=SrcData2)
+'Create Pivot table
+Set PTable2 = PCache2.CreatePivotTable( _
+    TableDestination:=StartPvt2, _
+    TableName:="DataPivotTableaaaaaaaa2")
+
+'Set and group rows and columns
+    With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa2").PivotFields("Theta(90)")
+        .Orientation = xlRowField
+        .Position = 1
+    End With
+    Range("A25").Select
+    Selection.Group Start:=0, End:=90, By:=22.5
+    With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa2").PivotFields("Theta(90)")
+        .Orientation = xlColumnField
+        .Position = 1
+    End With
+    With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa2").PivotFields("AbsPhi")
+        .Orientation = xlRowField
+        .Position = 1
+    End With
+    Range("A25").Select
+    Selection.Group Start:=0, End:=True, By:=22.5
+    With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa2").PivotFields("Theta(90)" _
+        )
+        .Orientation = xlColumnField
+        .Position = 1
+    End With
+    Range("B25").Select
+    With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa2").PivotFields("Theta(90)" _
+        )
+        .Orientation = xlColumnField
+        .Position = 1
+    End With
+'Set data fields as percents
+    ActiveSheet.PivotTables("DataPivotTableaaaaaaaa2").AddDataField ActiveSheet. _
+        PivotTables("DataPivotTableaaaaaaaa2").PivotFields("3D Length"), _
+        "Sum of 3D Length", xlCount
+With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa2").PivotFields( _
+        "Sum of 3D Length")
+        .Calculation = xlPercentOfTotal
+        .NumberFormat = "0.00%"
+End With
+    With ActiveSheet.PivotTables("DataPivotTableaaaaaaaa2").PivotFields("AbsPhi")
+        .PivotItems("<0").Visible = False
+    End With
+
+'Write out indices
+    Range("B31").Select
+    ActiveCell.FormulaR1C1 = "3D Indices"
+    Range("B32").Select
+    ActiveCell.FormulaR1C1 = "laminarity index"
+    Range("C32").Select
+    ActiveCell.FormulaR1C1 = "Radial index"
+    Range("D32").Select
+    ActiveCell.FormulaR1C1 = "Longitudinal index"
+    
+    Range("B33").Select
+    ActiveCell.FormulaR1C1 = "=SUM(R[-8]C[3]:R[-6]C[3])"
+    Range("C33").Select
+    ActiveCell.FormulaR1C1 = "=SUM(R[-8]C[-1]:R[-6]C)"
+    Range("D33").Select
+    ActiveCell.FormulaR1C1 = "=SUM(R[-5]C[-2]:R[-5]C[1])"
+    
+'Clean up
+    Columns("C:C").ColumnWidth = 15.13
+    Columns("D:D").ColumnWidth = 14.88
+    
+    Application.DisplayAlerts = False
+    ISheet.Delete
+    Application.DisplayAlerts = True
+    
+'Save pivot table as separate excel sheet
+PSheet.SaveAs FileName:=SaveName, FileFormat:=xlOpenXMLWorkbook
+
+    
+End Sub

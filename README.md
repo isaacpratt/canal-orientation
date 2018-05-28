@@ -1,7 +1,7 @@
 # canal-orientation
 Measure the orientation of vascular canals in cortical bone
 
-This project was created by Isaac Pratt based on an initial macro created by Dr. David Cooper and used in (Britz et al, 2012). This project updates that macro to measure the 3D orientation of canals in cortical bone. For full details on how it works see (Pratt & Cooper, 2017) and (Pratt et al, 2018).
+This project was created by Isaac Pratt between 2013 and 2018 and for a doctoral thesis. It is based on a previous set of macros created by Dr. David Cooper and used in (Britz et al, 2012). This project updates those macro to measure the 3D orientation of canals in cortical bone. For full details on how the macros function see (Pratt & Cooper, 2017) and (Pratt et al, 2018).
 
 This repository contains the following files:
 
